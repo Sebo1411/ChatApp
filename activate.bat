@@ -1,0 +1,1 @@
+py setupEnv.py && .\.venv\Scripts\activate.bat
