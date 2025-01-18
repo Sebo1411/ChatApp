@@ -1,4 +1,8 @@
 import customtkinter
+import asyncio
+from baza import Baza
+
+baza = Baza(__file__)
 
 """
 Okvir za odabir/stvaranje razgovora
