@@ -1,3 +1,7 @@
+server
+client
+baza
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
