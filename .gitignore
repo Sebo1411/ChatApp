@@ -1,4 +1,6 @@
-poruke.db
+server
+client
+baza
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
