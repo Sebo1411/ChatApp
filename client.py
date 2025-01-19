@@ -1,4 +1,8 @@
 import customtkinter
+import asyncio
+from baza import Baza
+
+baza = Baza(__file__)
 
 """
 Okvir za odabir/stvaranje razgovora
@@ -45,7 +49,10 @@ class Aplikacija(customtkinter.CTk):
         self.checkbox_1.grid(row=1, column=0, padx=20, pady=(0, 20), sticky="w")
         self.checkbox_2 = customtkinter.CTkCheckBox(self, text="checkbox 2")
         self.checkbox_2.grid(row=1, column=1, padx=20, pady=(0, 20), sticky="w")
-        
+    
+    def provjeriZaNovePoruke(self):
+        pass
+
     def button_callback(self):
         print("button pressed")
 
