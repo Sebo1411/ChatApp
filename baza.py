@@ -15,15 +15,24 @@ stvoriPoruke =  """
                 """
 
 
-stvoriKorisnike =   """
-                    CREATE TABLE Korisnici(
+stvoriKorisnikeServer = """
+                        CREATE TABLE Korisnici(
                         korisnikID INTEGER PRIMARY KEY AUTOINCREMENT,
                         korisnickoIme VARCHAR(30) NOT NULL UNIQUE,
+                        passSalt TEXT NOT NULL,
                         passHash TEXT NOT NULL,
                         datumPridruzivanja DATE DEFAULT CURRENT_TIMESTAMP,
                         uloga TEXT DEFAULT "user"
                         );
-                    """
+                        """
+
+stvoriKorisnikeClient = """
+                        CREATE TABLE Korisnici(
+                        korisnikID INTEGER PRIMARY KEY AUTOINCREMENT,
+                        korisnickoIme VARCHAR(30) NOT NULL UNIQUE,
+                        uloga TEXT DEFAULT "user"
+                        );
+                        """
 
 
 stvoriDatoteke =    """
