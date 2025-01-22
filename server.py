@@ -1,10 +1,29 @@
 from baza import Baza
-from typing import Self
+from typing import Self, Any
 import socket
 import threading
 import socketserver
 import ssl
-import json
+import ast
+
+"""
+prijenos parametara tj. naredbi s clienta do servera:
+    https -> siroko podrzano, komplicirano, skupo
+    json -> svi kovertirani tipovi u json-u su stringovi tak da json.loads(json.dumps(x)) != x # ne moraju biti isti tip
+    ast (abstract syntax tree) -> ast.literal_eval: sigurnije nego eval, ali ograniceno u tipovima koje podrzava, moze potrositi stack i srusiti program
+    pickle -> podrzava sve tipove za serializaciju, ali omogucuje pokretanje neodredenog koda(sigurnosni propust) -> dill prosiruje
+    protocol buffers -> siroko podrzano, radi s (skoro) svim jezicima, komplicirano
+"""
+
+class RequestParser:
+    def __init__(self: Self):
+        self.data: list[bytes] = []
+
+    def addData(self: Self, data: bytes):
+        self.data.append(data)
+    
+    def parse(self: Self) -> dict[str, Any]:
+        return ast.literal_eval("".join(data.decode("utf-8") for data in self.data)) #ocekuje dict, dekodira, spaja u jedan string i pretvara u dict
 
 """
 Zahtjevi:
@@ -14,8 +33,9 @@ Zahtjevi:
     hash, pepper, salt (bcrypt?) -> provjera s bazom
 """
 class RequestHandler(socketserver.BaseRequestHandler):
-    def __init__(self: Self, *args, **kwargs):
+    def __init__(self: Self, baza, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.baza = baza
 
     def setup(self: Self) -> None: #prije handle()
         print("setup pozvan")
@@ -36,14 +56,24 @@ class RequestHandler(socketserver.BaseRequestHandler):
     instanca servera ko self.server
     """
     def handle(self: Self) -> None:
-        
         print("pozvan handle")
         conn: socket.socket = self.request #naslijedeno iz socketserver.BaseRequestHandler
+
+        parser = RequestParser()
+
         while True:
             data = conn.recv(1024)
             if not data:
                 break
-            conn.sendall(data)
+            parser.addData(data)
+        
+        clientRequest = parser.parse()
+
+        value = clientRequest.get("command")
+        if value == "createUser":
+            self.baza.createUser(clientRequest["username"], clientRequest["passwordPlaintext"])
+
+            
 
     #def finish(self: Self) -> None: #poslje handle(), ne zove se ak setup(self) digne Exception
 
