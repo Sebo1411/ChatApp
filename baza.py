@@ -1,6 +1,8 @@
 #za cuvanje poruka na serveru(enkriptirano, bez dekripcije) i klijentu(enkriptirano, s dekripcijom)
+import enum
 import sqlite3
 import os
+from typing import Self
 
 stvoriPoruke =  """
                 CREATE TABLE Poruke(
@@ -47,9 +49,10 @@ stvoriDatoteke =    """
                     """
 
 class Baza:
-    def __init__(self, file):
+    def __init__(self: Self, file: str):
         noviF = os.path.splitext(os.path.basename(file))
-        folder = os.path.join(os.path.abspath(os.curdir), "".join(noviF[:len(noviF) - 1]))
+        imeDatoteke = "".join(noviF[:len(noviF) - 1])
+        folder = os.path.join(os.path.abspath(os.curdir), imeDatoteke)
 
         if not os.path.isdir(folder):
             os.makedirs(folder)
@@ -60,7 +63,12 @@ class Baza:
         self.cur: sqlite3.Cursor = self.conn.cursor()
 
         self.checkCreateTable("Poruke", stvoriPoruke)
-        self.checkCreateTable("Korisnici", stvoriKorisnike)
+
+        if imeDatoteke == "server":
+            self.checkCreateTable("Korisnici", stvoriKorisnikeServer)
+        elif imeDatoteke == "client":
+            self.checkCreateTable("Korisnici", stvoriKorisnikeClient)
+        
         self.checkCreateTable("Datoteke", stvoriDatoteke)
     
     """
