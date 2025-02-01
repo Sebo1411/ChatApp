@@ -62,6 +62,20 @@ class Razgovor(ctk.CTkScrollableFrame):
 class Login(ctk.CTkFrame):
     def __init__(self: Self, *args, **kwargs):
         super().__init__(*args, **kwargs)#custom tkinter postavi sam sebe
+
+        
+
+        self.trenutni=ctk.CTkLabel(razgovor, text="", font=("Arial", 20))
+        self.trenutni.pack(pady=10)
+        self.poruke=ctk.CTkTextbox(razgovor, height=400, state="disabled")
+        self.poruke.pack(pady=5, padx=10, fill="both", expand=True)
+
+    def openChat(self: Self):
+        pass
+
+class Login(ctk.CTkFrame):
+    def __init__(self: Self, *args, **kwargs):
+        super().__init__(*args, **kwargs)#custom tkinter postavi sam sebe
         self.UI()
 
     def UI(self: Self):

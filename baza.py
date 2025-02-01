@@ -3,6 +3,8 @@ import enum
 import sqlite3
 import os
 from typing import Self
+import secrets
+import hashlib
 
 stvoriPoruke =  """
                 CREATE TABLE Poruke(
@@ -21,8 +23,8 @@ stvoriKorisnikeServer = """
                         CREATE TABLE Korisnici(
                         korisnikID INTEGER PRIMARY KEY AUTOINCREMENT,
                         korisnickoIme VARCHAR(30) NOT NULL UNIQUE,
-                        passSalt TEXT NOT NULL,
-                        passHash TEXT NOT NULL,
+                        passSalt BLOB NOT NULL,
+                        passHash BLOB NOT NULL,
                         datumPridruzivanja DATE DEFAULT CURRENT_TIMESTAMP,
                         uloga TEXT DEFAULT "user"
                         );
@@ -81,6 +83,28 @@ class Baza:
             return self.cur.execute(command)
         else:
             return self.cur
+        
+    def checkUserExists(self: Self, username: str):
+        self.cur.execute(f"""
+                            SELECT * FROM Korisnici WHERE korisnickoIme = ?
+                          """, (username, ))
+        return len(self.cur.fetchone()) != 0
+            
+
+    def createUser(self: Self, username: str, loznikaPlaintext: bytes) -> bool:
+        if not self.checkUserExists(username): 
+            return False
+        
+        salt = secrets.token_bytes(16)
+
+        self.cur.execute(f"""
+                            INSERT INTO Korisnici (korisnickoIme, passSalt, passHash) ; mozda jos uloga
+                            VALUES (?, ?, ?)
+                            ; n - cost factor, r - block size, p - paralelizacija
+                         """, (username, salt, hashlib.scrypt(loznikaPlaintext, salt = salt, n = 16384, r = 8, p = 1)))
+        
+        return True
+
 
     
 
