@@ -3,6 +3,8 @@ from typing import Self
 import asyncio
 from baza import Baza
 from tkinter import END
+import hashlib
+import random
 
 baza = Baza(__file__)
 
@@ -174,6 +176,68 @@ class Aplikacija(ctk.CTk):
 
 def prijava1(n: int):
     print("posrani sam")
+
+class DSA:
+    def __init__(self: Self, q=160, p=1024):
+        self.q=self.generiraj1(q)
+        self.p=self.generiraj1(p)
+        while (self.p-1)%self.q!=0:
+            self.p=self.generiraj1(p)
+        self.g=self.generator2()
+        self.x=random.randint(1,self.q-1)
+        self.y=pow(self.g,self.x,self.p)
+
+    def generiraj1(self: Self, b):
+        while True:
+            k=random.getrandbits(b)|1
+            if self.prost(k):
+                return k
+
+    def prost(self: Self, n):
+        je=True
+        for i in range(2,round(n**0.5)+1):
+            if n%i==0:
+                je=False
+                break
+        return je
+
+    def generator2(self: Self):
+        h=2
+        while True:
+            g=pow(h, (self.p-1)//self.g, self.p)
+            if g>1:
+                return g
+            h+=1
+
+    def potpis(self: Self, message):
+        h=int(hashlib.sha1(message.encode()).hexdigest(),16)
+        while True:
+            k=random.randint(1,self.g-1)
+            r=pow(self.g,k,self.p)%self.q
+            if r==0:continue
+            kinv=pow(k,1,self.q)
+            s=(kinv*(h+self.x*r))%self.q
+            if s!=0:break
+        return (r,s)
+
+    def verificiraj(self: Self, message, sig):
+        r,s=sig
+        if not (0<r<self.q and 0<s<self.q):
+            return False
+        h=int(hashlib.sha1(message.encode()).hexdigest(),16)
+        w=pow(s,-1,self.q)
+        u1=(h*w)%self.q
+        u2=(r*w)%self.q
+        v=((pow(self.g,u1,self.p)*pow(self.y,u2,self.p))%self.p)%self.q
+        dobro=v==r
+        return dobro
+
+#korištenje:
+##dsa=DSA()
+##poruka="Dobar dan"
+##potpis=dsa.potpis(poruka)
+##verificiraj=dsa.verificiraj(poruka,potpis)
+##print(verificiraj)
 
 if __name__ == "__main__":
     whatsApp=Aplikacija()
