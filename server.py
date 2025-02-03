@@ -6,6 +6,8 @@ import socketserver
 import ssl
 import ast
 
+baza = Baza(__file__)
+
 """
 prijenos parametara tj. naredbi s clienta do servera:
     https -> siroko podrzano, komplicirano, skupo
@@ -33,9 +35,8 @@ Zahtjevi:
     hash, pepper, salt (bcrypt?) -> provjera s bazom
 """
 class RequestHandler(socketserver.BaseRequestHandler):
-    def __init__(self: Self, baza, *args, **kwargs):
+    def __init__(self: Self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.baza = baza
 
     def setup(self: Self) -> None: #prije handle()
         print("setup pozvan")
@@ -71,7 +72,7 @@ class RequestHandler(socketserver.BaseRequestHandler):
 
         value = clientRequest.get("command")
         if value == "createUser":
-            self.baza.createUser(clientRequest["username"], clientRequest["passwordPlaintext"])
+            baza.createUser(clientRequest["username"], clientRequest["passwordPlaintext"])
 
             
 
@@ -80,7 +81,7 @@ class RequestHandler(socketserver.BaseRequestHandler):
 class Server(socketserver.ThreadingTCPServer):
     def __init__(self: Self, hostnameOrIp: str, port: int):
         super().__init__((hostnameOrIp, port), RequestHandler)
-        self.baza = Baza(__file__)
+        
 
     def notify_clients_when_server_is_interrupted(self) -> None:
         pass
