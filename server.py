@@ -5,6 +5,7 @@ import threading
 import socketserver
 import ssl
 import ast
+import asyncio
 
 baza = Baza(__file__)
 
@@ -21,11 +22,14 @@ class RequestParser:
     def __init__(self: Self):
         self.data: list[bytes] = []
 
-    def addData(self: Self, data: bytes):
+    def append(self: Self, data: bytes):
         self.data.append(data)
     
     def parse(self: Self) -> dict[str, Any]:
-        return ast.literal_eval("".join(data.decode("utf-8") for data in self.data)) #ocekuje dict, dekodira, spaja u jedan string i pretvara u dict
+        return ast.literal_eval("".join(data.decode() for data in self.data)) #ocekuje dict, dekodira, spaja u jedan string i pretvara u dict
+    
+    def isEmpty(self: Self):
+        return len(self.data) == 0
 
 """
 Zahtjevi:
@@ -33,95 +37,66 @@ Zahtjevi:
     provjeriti dal korisnik vec postoji
     provjeriti dal lozinka zadovoljava minimalne uvjete
     hash, pepper, salt (bcrypt?) -> provjera s bazom
-"""
-class RequestHandler(socketserver.BaseRequestHandler):
-    def __init__(self: Self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+""" 
+class Server:
+    def __init__(self: Self):
+        self.clients: dict[str, asyncio.StreamWriter] = dict()
 
-    def setup(self: Self) -> None: #prije handle()
-        print("setup pozvan")
-        if hasattr(socket, "SO_KEEPALIVE"):
-            self.request.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)  #TCP keep-alive
-        if hasattr(socket, "TCP_QUICACK"): #nema
-            #self.socket.setsockopt(socket.SOL_TCP, socket.TCP_QUICACK, 1)
-            pass
-        if hasattr(socket, "IP_TOS"):
-            self.request.setsockopt(socket.IPPROTO_IP, socket.IP_TOS, 0x10)  #low latency
-        if hasattr(socket, "TCP_NODELAY"):
-            self.request.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1) 
-        
+    async def run(self: Self):
+        server = await asyncio.start_server(self.handle, '127.0.0.1', 9999)
 
-    """
-    zahtjev je dostupan ko self.request (socket za TCP)
-    adresa klijenta ko self.client_address
-    instanca servera ko self.server
-    """
-    def handle(self: Self) -> None:
-        print("pozvan handle")
-        conn: socket.socket = self.request #naslijedeno iz socketserver.BaseRequestHandler
+        async with server:
+            await server.serve_forever()
 
-        parser = RequestParser()
-
+    async def handle(self: Self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         while True:
-            data = conn.recv(1024)
+            parser = RequestParser()
+            data = await reader.readline()
             if not data:
                 break
-            parser.addData(data)
+            parser.append(data)
+
+            if not parser.isEmpty():
+                clientRequest = parser.parse()
+
+                print(clientRequest)
+
+                command = clientRequest.get("command")
+                if command == "message":
+                    success = baza.storeMessage(clientRequest["sender"], clientRequest["receiver"], clientRequest["message"])
+                    response = str({"success": success, "message": ""})
+                    writer.write(response.encode())
+                    await writer.drain()
+                elif command == "register":
+                    success = baza.createUser(clientRequest["username"], clientRequest["passwordPlaintext"])
+                    response = str({"success": success, "message": "", "token": 0x01, "expiresIn": 3600})
+
+                    if success: self.clients[clientRequest["username"]] = writer
+
+                    writer.write(response.encode())
+                    await writer.drain()
+                elif command == "signIn":
+                    success = baza.verifyCreds(clientRequest["username"], clientRequest["passwordPlaintext"])
+                    self.clients[clientRequest["username"]] = writer
+                    pass
+                
+                else:
+                    print(f"unknown command: {command}")
+                    writer.close()
+                    await writer.wait_closed()
+                    return
         
-        clientRequest = parser.parse()
+        #writer.write(data)
+        #await writer.drain()
 
-        value = clientRequest.get("command")
-        if value == "createUser":
-            baza.createUser(clientRequest["username"], clientRequest["passwordPlaintext"])
-
-            
-
-    #def finish(self: Self) -> None: #poslje handle(), ne zove se ak setup(self) digne Exception
-
-class Server(socketserver.ThreadingTCPServer):
-    def __init__(self: Self, hostnameOrIp: str, port: int):
-        super().__init__((hostnameOrIp, port), RequestHandler)
         
-
-    def notify_clients_when_server_is_interrupted(self) -> None:
-        pass
-
-    def server_bind(self: Self):
-        print("server_bind pozvan")
-
-        #default implementacija
-        if self.allow_reuse_address and hasattr(socket, "SO_REUSEADDR"):
-            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        if self.allow_reuse_port and hasattr(socket, "SO_REUSEPORT"): #socket nema SO_REUSEPORT u windowsu
-            #self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1) 
-            pass
-        
-        #socket razina, drzi socket otvorenim, ukljuci opciju
-        
-
-        #default
-        self.socket.bind(self.server_address)
-        self.server_address = self.socket.getsockname()
-
-    def get_request(self: Self):
-        print("Pozvan get_request")
-        #return self.socket.accept() #default implementacija
-        return super().get_request()
-    
-    def verify_request(self: Self, request, client_address):
-        print("Pozvan verify_request")
-        return super().verify_request(request, client_address)
-    
-    def process_request(self: Self, request, client_address):
-        print("Pozvan process_request")
-        return super().process_request(request, client_address)
-    
-    #def server_close(self: Self): #cleanup: odspoji sve klijente
-    
-
 
 
 if __name__ == "__main__":
+    server = Server()
+    asyncio.run(server.run())
+
+    """
     server = Server("127.0.0.1", 9999)
     with server:
         ip, port = server.server_address
@@ -131,3 +106,4 @@ if __name__ == "__main__":
         # Exit the server thread when the main thread terminates
         server.serve_forever()
         #server.shutdown()
+    """
