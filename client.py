@@ -128,7 +128,6 @@ class Razgovor(ctk.CTkFrame):
         self.posalji.grid(row=0, column=1)
 
 
-
 class Login(ctk.CTkFrame):
     def __init__(self: Self, *args, **kwargs):
         super().__init__(*args, **kwargs)#custom tkinter postavi sam sebe
@@ -164,6 +163,7 @@ class Login(ctk.CTkFrame):
         inner2Frame.columnconfigure(0, weight=1)
         inner2Frame.columnconfigure(1, weight=1)
         inner2Frame.grid(row=3, column=0, sticky="nsew")
+
 
 
         # Register Label

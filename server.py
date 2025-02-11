@@ -9,6 +9,8 @@ import asyncio
 
 baza = Baza(__file__)
 
+baza = Baza(__file__)
+
 """
 prijenos parametara tj. naredbi s clienta do servera:
     https -> siroko podrzano, komplicirano, skupo
