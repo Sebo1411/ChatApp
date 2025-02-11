@@ -60,12 +60,20 @@ class Baza:
         if not os.path.isdir(folder):
             os.makedirs(folder)
         
-        dbPath = os.path.join(folder, 'podatci.db')
+        self.dbPath = os.path.join(folder, 'podatci.db')
         
-        self.conn: sqlite3.Connection = sqlite3.connect(dbPath)
+        self.conn: sqlite3.Connection = sqlite3.connect(self.dbPath)
+
+        self.conn.execute("PRAGMA foreign_keys = ON;")  # Enforce foreign key constraints (optional)
+        self.conn.execute("PRAGMA journal_mode = WAL;")  # Optional, for improved logging in WAL mode
+        self.conn.execute("PRAGMA synchronous = FULL;")  # Ensures SQLite writes are fully committed
+
+        # Enable SQLite to raise exceptions on errors:
+        self.conn.row_factory = sqlite3.Row
+
         self.cur: sqlite3.Cursor = self.conn.cursor()
 
-        print(f"baza: {dbPath}")
+        print(f"baza: {self.dbPath}")
 
         self.checkCreateTable("Poruke", stvoriPoruke)
 
@@ -75,6 +83,20 @@ class Baza:
             self.checkCreateTable("Korisnici", stvoriKorisnikeClient)
         
         self.checkCreateTable("Datoteke", stvoriDatoteke)
+    
+    def __delete__(self: Self):
+        if os.path.exists(self.dbPath):
+            os.remove(self.dbPath)
+            print(f"Database {self.dbPath} deleted successfully.")
+        else:
+            print(f"Database {self.dbPath} file not found.")
+
+    def __del__(self: Self):
+        if os.path.exists(self.dbPath):
+            os.remove(self.dbPath)
+            print(f"Database {self.dbPath} deleted successfully.")
+        else:
+            print(f"Database {self.dbPath} file not found.")
     
     """
     Stvara table u bazi s tom naredbom,
@@ -91,10 +113,7 @@ class Baza:
         result = self.cur.execute("""
                           SELECT COUNT(*) FROM Korisnici WHERE korisnickoIme = ?
                          """, (username, )).fetchone()
-        return result[0] != 0
-
-    def checkLoggedIn(self: Self):
-        return False
+        return result != None and result[0] != 0
 
     def IDfromUsername(self: Self, username):
         result = self.cur.execute(
@@ -175,7 +194,8 @@ class Baza:
             print("nema poruka")
             return False
         
-        yield from result
+        for korisnickoIme in result:
+            yield korisnickoIme
 
     def countMessages(self: Self, username):
         if not self.checkUserExists(username):
@@ -207,8 +227,6 @@ class Baza:
 
         if result is None:
             return False
-
-        print(type(result[0]))
 
         return result[1] == hashlib.scrypt(password.encode(), salt=result[0], n = 16384, r = 8, p = 1)
 

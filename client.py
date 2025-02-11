@@ -1,6 +1,6 @@
 from threading import Thread
 import customtkinter as ctk
-from typing import Any, Self
+from typing import Any, Self, Optional
 import asyncio
 from baza import Baza
 from tkinter import END
@@ -12,9 +12,8 @@ import socket
 import gc
 import asyncio
 import ast
-
-
-baza = Baza(__file__)
+import traceback
+import tracemalloc
 
 class RequestParser:
     def __init__(self: Self):
@@ -64,6 +63,8 @@ class OdabirRazgovora(ctk.CTkScrollableFrame):
         
 
     def addRazgovor(self: Self, username):
+        print(f"dodana razgovor s {username}")
+
         self.rowconfigure(len(self.razgovori), weight=1)
         #self.columnconfigure(1, weight=1)
 
@@ -82,9 +83,9 @@ class OdabirRazgovora(ctk.CTkScrollableFrame):
         #u frameu
         self.razgovori[-1][1].grid(row=0, column=0, sticky="nsew", pady=2)
         self.razgovori[-1][2].grid(row=0, column=1, sticky="ns", pady=2)
-
-        diameter = round(min(visina, sirina)*0.7)//2*2
-        self.razgovori[-1][2].create_oval(((sirina-diameter)//2, (visina-diameter)//2), ((sirina+diameter)//2, (visina+diameter)//2), fill=b_bijela)
+        
+        assert type(self.razgovori[-1][2]) is ctk.CTkCanvas, "nije canvas"
+        self.razgovori[-1][2].create_aa_circle(x_pos=round(sirina/2), y_pos=round(visina/2), radius=round(min(sirina/2, visina/2)*0.7), fill=b_bijela)
 
     def openChat(self: Self):
         print("open Chat")
@@ -244,16 +245,19 @@ class Aplikacija(ctk.CTk):
     def resetMainFrame(self: Self, *args, **kwargs):
         self.mainFrame: ctk.CTkFrame
         
-        self.login = None
-        self.odabirRazgovora = None
-        self.razgovor = None
+        self.login: Optional[Login] = None
+        self.odabirRazgovora: Optional[OdabirRazgovora] = None
+        self.razgovor: Optional[Razgovor] = None
 
         self.mainFrame.destroy()
         self.mainFrame = ctk.CTkFrame(master=self, *args, **kwargs)
         self.mainFrame.grid(row=0, column=0, sticky="nsew")
     
+    def checkLoggedIn(self: Self):
+        return False #npr session token
+
     def initLoginOrChat(self: Self):
-        if not baza.checkLoggedIn():
+        if not self.checkLoggedIn():
             self.initLogin()
         
         else:
@@ -265,11 +269,20 @@ class Aplikacija(ctk.CTk):
 
     def successfulConnectCallback(self: Self):
         self.queue = asyncio.Queue()
+        self.initLoginOrChat()
         asyncio.run_coroutine_threadsafe(self.readFromServer(self.reader), self.loop)
         asyncio.run_coroutine_threadsafe(self.write2Server(self.writer, self.queue), self.loop)
-        self.initLoginOrChat()
 
     async def aConnect(self: Self):
+        if hasattr(self, "baza"):
+            self.baza.conn.close()
+        else:
+            self.baza = Baza(__file__)
+            self.baza.conn.close()
+        
+        print("baza izbrisana")
+        del self.baza
+        
         retryingT = ["Retrying", "Retrying.", "Retrying..", "Retrying..."]
         i=0
         while True:
@@ -281,6 +294,9 @@ class Aplikacija(ctk.CTk):
                 i = (i+1)%len(retryingT)
 
         self.reader, self.writer = ReWr
+
+        self.baza = Baza(__file__)
+        
         self.after(0, self.successfulConnectCallback)
 
     async def readFromServer(self: Self, reader: asyncio.StreamReader):
@@ -290,31 +306,32 @@ class Aplikacija(ctk.CTk):
             if not data:
                 break
             parser.append(data)
-            #print(f"Received from server: {data.decode()}")
+            print(f"Primljeno: {data.decode()}", end="")
             serverRequest = parser.parse()
-            print(serverRequest)
+            #print(serverRequest)
             if serverRequest["command"] == "signIn" or serverRequest["command"] == "register":
                 if serverRequest["success"]:
                     print("uspjesna prijava")
                     self.username = serverRequest["username"]
                     self.after(0, self.successfulLoginCallback)
                 else:
-                    self.mainFrame.configureUsernamePasswordInput(border_color="red")
+                    assert type(self.login) is Login, "login nije inicijaliziran"
+                    self.login.configureUsernamePasswordInput(border_color="red")
 
             elif serverRequest["command"] == "user":
-                if not baza.checkUserExists(serverRequest["user"]):
-                    baza.cur.execute(
+                if not self.baza.checkUserExists(serverRequest["user"]):
+                    self.after(0, lambda: self.odabirRazgovora.addRazgovor(serverRequest["user"]))
+                    self.baza.cur.execute(
                         """
                         INSERT INTO Korisnici(korisnickoIme)
                         VALUES (?)
                         """, (serverRequest["user"],)
                     )
-                    baza.conn.commit()
+                    self.baza.conn.commit()
+                    
+                    
 
-                    self.odabirRazgovora.addRazgovor(serverRequest["user"])
-
-        
-        self.after(0, lambda: self.initConnection(self.ip, self.port))
+        self.after(0, self.disconnected)
 
     async def write2Server(self: Self, writer: asyncio.StreamWriter, queue: asyncio.Queue):
         while True:
@@ -329,23 +346,11 @@ class Aplikacija(ctk.CTk):
         asyncio.set_event_loop(loop)
         loop.run_forever()
 
-    def initConnection(self: Self, ip, port):
+    def disconnected(self: Self):
         self.resetMainFrame()
+        asyncio.run_coroutine_threadsafe(self.aConnect(), self.loop)
 
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.setblocking(False)
-
-        self.ip = ip
-        self.port = port
-
-        self.loop = asyncio.new_event_loop()
-
-        self.networkingThread = Thread(target=self.networkingLoop, args=(self.loop,), name="networking", daemon=True)
-        self.networkingThread.start()
-
-        self.connectFuture = asyncio.run_coroutine_threadsafe(self.aConnect(), self.loop)
-        #self.connectFuture.add_done_callback(lambda future: self.after(0, lambda: self.initLoginOrChat))#future nije koristen jer aConnect ne vraca vrijednost
-        
+    def initConnectionUI(self: Self):
         self.mainFrame.columnconfigure(0, weight=1)
         self.mainFrame.columnconfigure(1, weight=1)
         self.mainFrame.columnconfigure(2, weight=1)
@@ -371,6 +376,22 @@ class Aplikacija(ctk.CTk):
 
         self.text2 = ctk.CTkLabel(frame, text="", font=("Arial", 30))
         self.text2.grid(row=1, column=0)
+
+    def initConnection(self: Self, ip, port):
+        self.resetMainFrame()
+
+        self.ip = ip
+        self.port = port
+
+        self.loop = asyncio.new_event_loop()
+
+        self.networkingThread = Thread(target=self.networkingLoop, args=(self.loop,), name="networking", daemon=True)
+        self.networkingThread.start()
+
+        self.connectFuture = asyncio.run_coroutine_threadsafe(self.aConnect(), self.loop)
+        #self.connectFuture.add_done_callback(lambda future: self.after(0, lambda: self.initLoginOrChat))#future nije koristen jer aConnect ne vraca vrijednost
+        
+        self.initConnectionUI()
 
     def initLogin(self: Self):
         self.resetMainFrame()
@@ -423,15 +444,25 @@ class Aplikacija(ctk.CTk):
 
     def slanje(self: Self, poruka):
         if poruka == "": return
-        poruka = str({"command": "message", "sender": "a", "receiver": "b", "message": poruka})
+        poruka = str({"command": "message", 
+                      "sender": "a", 
+                      "receiver": "b", 
+                      "message": poruka
+                      })
         asyncio.run_coroutine_threadsafe(self.queue.put(poruka.encode()), self.loop)
 
     def registracija(self: Self, username, password):
-        poruka = str({"command": "register", "username": username, "passwordPlaintext": password})
+        poruka = str({"command": "register", 
+                      "username": username, 
+                      "passwordPlaintext": password
+                      })
         asyncio.run_coroutine_threadsafe(self.queue.put(poruka.encode()), self.loop)
 
     def prijava(self: Self, username, password):
-        poruka = str({"command": "signIn", "username": username, "passwordPlaintext": password})
+        poruka = str({"command": "signIn", 
+                      "username": username, 
+                      "passwordPlaintext": password
+                      })
         asyncio.run_coroutine_threadsafe(self.queue.put(poruka.encode()), self.loop)
 
     def on_close(self: Self):
@@ -542,9 +573,13 @@ class DSA:
 
 # file_path = input("Put: ")
 # print(dsa.verify(file_path, signature[0], signature[1])) #True ako je valjan False ako nije
-if __name__ == "__main__":
-    #ili input
-    whatsApp=Aplikacija()
-    whatsApp.initConnection("127.0.0.1", 9999)
-    whatsApp.mainloop()
-    whatsApp.networkingThread.join()
+try:
+    if __name__ == "__main__":
+        #ili input
+        whatsApp=Aplikacija()
+        whatsApp.initConnection("127.0.0.1", 9999)
+        whatsApp.mainloop()
+        whatsApp.networkingThread.join()
+except Exception as e:
+    print("Error:", e)  # Basic message
+    traceback.print_exc()
