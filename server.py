@@ -65,21 +65,52 @@ class Server:
                 if command == "message":
                     success = baza.storeMessage(clientRequest["sender"], clientRequest["receiver"], clientRequest["message"])
                     response = str({"success": success, "message": ""})
-                    writer.write(response.encode())
+                    writer.write(response.encode() + b'\n')
                     await writer.drain()
+
                 elif command == "register":
                     success = baza.createUser(clientRequest["username"], clientRequest["passwordPlaintext"])
-                    response = str({"success": success, "message": "", "token": 0x01, "expiresIn": 3600})
+                    response = str({"command": "register", "success": success, "username":clientRequest["username"], "message": "", "token": 0x01, "expiresIn": 3600})
 
                     if success: self.clients[clientRequest["username"]] = writer
 
-                    writer.write(response.encode())
+                    writer.write(response.encode() + b'\n')
                     await writer.drain()
+
+                    for i in baza.getUsers(clientRequest["username"]):
+                        response = str({"command": "user", "user": i[0]})
+                        writer.write(response.encode() + b'\n')
+
+                    await writer.drain()
+
+                    for i in baza.getMessages(clientRequest["username"]):
+                        response = str({"command": "message", "sender": i[0], "receiver": i[1], "vrijeme": i[2], "encInfo": i[3], "encPoruka": i[4]})
+                        writer.write(response.encode() + b'\n')
+                    
+                    await writer.drain()
+
                 elif command == "signIn":
                     success = baza.verifyCreds(clientRequest["username"], clientRequest["passwordPlaintext"])
-                    self.clients[clientRequest["username"]] = writer
-                    pass
-                
+
+                    if success: self.clients[clientRequest["username"]] = writer
+                    
+                    response = str({"command": "signIn", "success": success, "username": clientRequest["username"], "message": "", "token": 0x01, "expiresIn": 3600})
+                    writer.write(response.encode() + b'\n')
+                    await writer.drain()
+
+                    for i in baza.getUsers(clientRequest["username"]):
+                        response = str({"command": "user", "user": i[0]})
+                        writer.write(response.encode() + b'\n')
+                    
+                    await writer.drain()
+                    """
+                    for i in baza.getMessages(clientRequest["username"]):
+                        response = str({"command": "message", "sender": i[0], "receiver": i[1], "vrijeme": i[2], "encInfo": i[3], "encPoruka": i[4]})
+                        writer.write(response.encode() + b'\n')
+                    
+                    await writer.drain()
+                    """
+
                 else:
                     print(f"unknown command: {command}")
                     writer.close()

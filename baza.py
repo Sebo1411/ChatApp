@@ -88,10 +88,10 @@ class Baza:
             return self.cur
         
     def checkUserExists(self: Self, username: str):
-        self.cur.execute("""
-                          SELECT korisnikID FROM Korisnici WHERE korisnickoIme = ?
-                         """, (username, ))
-        return self.cur.fetchone() != None
+        result = self.cur.execute("""
+                          SELECT COUNT(*) FROM Korisnici WHERE korisnickoIme = ?
+                         """, (username, )).fetchone()
+        return result[0] != 0
 
     def checkLoggedIn(self: Self):
         return False
@@ -133,6 +133,65 @@ class Baza:
         
         self.conn.commit()
         return True
+
+    def getMessages(self: Self, username):
+        if not self.checkUserExists(username):
+            print(f"korisnik {username} ne postoji")
+            return
+        
+        result = self.cur.execute(
+            """
+                SELECT 
+                    k1.korisnickoIme AS posiljatelj,
+                    k2.korisnickoIme AS primatelj,
+                    p.vrijeme,
+                    p.encInfo,
+                    p.encPoruka
+                FROM Poruke p
+                JOIN Korisnici k1 ON p.posiljateljID = k1.korisnikID
+                JOIN Korisnici k2 ON p.primateljID = k2.korisnikID
+                ORDER BY p.vrijeme ASC;
+            """
+                ).fetchall()
+        
+        if result is None:
+            print("nema poruka")
+            return False
+        
+        yield from result
+
+    def getUsers(self: Self, username):
+        if not self.checkUserExists(username):
+            print(f"korisnik {username} ne postoji")
+            return False
+        
+        result = self.cur.execute(
+            """
+                SELECT korisnickoIme FROM Korisnici WHERE korisnickoIme != ?
+            """, (username, )
+                ).fetchall()
+        
+        if result is None:
+            print("nema poruka")
+            return False
+        
+        yield from result
+
+    def countMessages(self: Self, username):
+        if not self.checkUserExists(username):
+            print(f"korisnik {username} ne postoji")
+            return 0
+
+        result = self.cur.execute(
+            """
+            SELECT COUNT(*) 
+            FROM Poruke 
+            WHERE posiljateljID = (SELECT korisnikID FROM Korisnici WHERE korisnickoIme = ?)
+            OR primateljID = (SELECT korisnikID FROM Korisnici WHERE korisnickoIme = ?);
+            """, (username, username)
+        ).fetchone()
+
+        return result[0]
 
 
     def verifyCreds(self: Self, username, password):

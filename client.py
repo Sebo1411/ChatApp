@@ -58,12 +58,12 @@ class OdabirRazgovora(ctk.CTkScrollableFrame):
         self.razgovori: list[list[ctk.CTkFrame | ctk.CTkLabel | ctk.CTkCanvas]] = []
 
         #test
-        for i in range(20):
-            self.addRazgovor()
+        #for i in range(20):
+        #    self.addRazgovor()
             
         
 
-    def addRazgovor(self: Self):
+    def addRazgovor(self: Self, username):
         self.rowconfigure(len(self.razgovori), weight=1)
         #self.columnconfigure(1, weight=1)
 
@@ -76,7 +76,7 @@ class OdabirRazgovora(ctk.CTkScrollableFrame):
 
 
         self.razgovori.append([frame,
-                               ctk.CTkLabel(frame, text="neki tekst"),
+                               ctk.CTkLabel(frame, text=username),
                                ctk.CTkCanvas(frame, height=visina, width=sirina),
                                ])
         #u frameu
@@ -135,8 +135,6 @@ class Login(ctk.CTkFrame):
         self.initUI()
 
         #aplikacija i njezine metode, npr. Aplikacija.successfulLoginCallback() su metode na self.master
-        #tip self.master je Aplikacija
-        self.master: "Aplikacija"
 
     def initUI(self: Self):
         # Frame
@@ -181,6 +179,10 @@ class Login(ctk.CTkFrame):
         loginLabel.grid(row=0, column=1, sticky="nsew", pady=20, padx=35)
         loginLabel.bind("<Button-1>", lambda e: self.prijava(self.usernameEntry.get(), self.passwordEntry.get()))
 
+    def configureUsernamePasswordInput(self: Self, *args, **kwargs):
+        self.after(0, self.usernameEntry.configure(*args, **kwargs))
+        self.after(0, self.passwordEntry.configure(*args, **kwargs))
+
     def passwordRestrictionsSat(self: Self, password: str) -> bool:
         return True
         if len(password)<8 or len(password)>40: return False
@@ -207,11 +209,6 @@ class Login(ctk.CTkFrame):
         app: Aplikacija = self.master.master#type: ignore
         app.prijava(username, password)
 
-        
-        
-
-        
-   
     def registracija(self: Self, username, password):
         #zadovoljava uvjete za lozinku
         if not self.passwordRestrictionsSat(password):
@@ -231,6 +228,10 @@ class Aplikacija(ctk.CTk):
     def __init__(self: Self, *args, **kwargs):#*args i **kwargs u slucaju da ih custom tkinter koristi sa strane (bez da znamo)
         super().__init__(*args, **kwargs)#custom tkinter postavi sam sebe
 
+        self.login = None
+        self.odabirRazgovora = None
+        self.razgovor = None
+
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
 
@@ -243,6 +244,10 @@ class Aplikacija(ctk.CTk):
     def resetMainFrame(self: Self, *args, **kwargs):
         self.mainFrame: ctk.CTkFrame
         
+        self.login = None
+        self.odabirRazgovora = None
+        self.razgovor = None
+
         self.mainFrame.destroy()
         self.mainFrame = ctk.CTkFrame(master=self, *args, **kwargs)
         self.mainFrame.grid(row=0, column=0, sticky="nsew")
@@ -255,6 +260,7 @@ class Aplikacija(ctk.CTk):
             self.initChat()
 
     def successfulLoginCallback(self: Self):
+        self.login = None
         self.initChat()
 
     def successfulConnectCallback(self: Self):
@@ -280,14 +286,35 @@ class Aplikacija(ctk.CTk):
     async def readFromServer(self: Self, reader: asyncio.StreamReader):
         while True:
             parser = RequestParser()
-            while True:
-                data = await reader.readline()
-                if not data:
-                    break
-                parser.append(data)
-                print(f"Received from server: {data.decode()}")
+            data = await reader.readline()
+            if not data:
+                break
+            parser.append(data)
+            #print(f"Received from server: {data.decode()}")
+            serverRequest = parser.parse()
+            print(serverRequest)
+            if serverRequest["command"] == "signIn" or serverRequest["command"] == "register":
+                if serverRequest["success"]:
+                    print("uspjesna prijava")
+                    self.username = serverRequest["username"]
+                    self.after(0, self.successfulLoginCallback)
+                else:
+                    self.mainFrame.configureUsernamePasswordInput(border_color="red")
+
+            elif serverRequest["command"] == "user":
+                if not baza.checkUserExists(serverRequest["user"]):
+                    baza.cur.execute(
+                        """
+                        INSERT INTO Korisnici(korisnickoIme)
+                        VALUES (?)
+                        """, (serverRequest["user"],)
+                    )
+                    baza.conn.commit()
+
+                    self.odabirRazgovora.addRazgovor(serverRequest["user"])
+
         
-        print("Server reader stopped")
+        self.after(0, lambda: self.initConnection(self.ip, self.port))
 
     async def write2Server(self: Self, writer: asyncio.StreamWriter, queue: asyncio.Queue):
         while True:
@@ -348,11 +375,14 @@ class Aplikacija(ctk.CTk):
     def initLogin(self: Self):
         self.resetMainFrame()
 
-        self.mainFrame = ctk.CTkFrame(self)
-        self.mainFrame.grid(row=0, column=0)
+        #self.mainFrame = ctk.CTkFrame(self)
+        #self.mainFrame.grid(row=0, column=0)
 
         self.mainFrame = Login(self.mainFrame)
+        self.mainFrame.grid(row=0, column=0)
         self.config(bg=b_siva)
+
+        self.login = self.mainFrame
 
     def initChat(self: Self):
         self.resetMainFrame()
@@ -383,6 +413,7 @@ class Aplikacija(ctk.CTk):
         self.imeRazgovora.grid(row=0, column=1, sticky="nsew")
         self.razgovor = Razgovor(self.mainFrame)
         self.razgovor.grid(row=1, column=1, sticky="nsew")
+
 
     def button_callback(self: Self):
         print("button pressed")
