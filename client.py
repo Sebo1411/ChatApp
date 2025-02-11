@@ -1,3 +1,4 @@
+from threading import Thread
 import customtkinter as ctk
 from typing import Any, Self
 import asyncio
@@ -6,9 +7,27 @@ from tkinter import END
 import random
 from hashlib import sha1
 import os
-from time import time
+import time
+import socket
+import gc
+import asyncio
+import ast
+
 
 baza = Baza(__file__)
+
+class RequestParser:
+    def __init__(self: Self):
+        self.data: list[bytes] = []
+
+    def append(self: Self, data: bytes):
+        self.data.append(data)
+    
+    def parse(self: Self) -> dict[str, Any]:
+        return ast.literal_eval("".join(data.decode("utf-8") for data in self.data)) #ocekuje dict, dekodira, spaja u jedan string i pretvara u dict
+    
+    def isEmpty(self: Self):
+        return len(self.data) == 0
 
 b_plava = "#6495ED"
 b_plava1 = "#4169E1"
@@ -39,12 +58,12 @@ class OdabirRazgovora(ctk.CTkScrollableFrame):
         self.razgovori: list[list[ctk.CTkFrame | ctk.CTkLabel | ctk.CTkCanvas]] = []
 
         #test
-        for i in range(20):
-            self.addRazgovor()
+        #for i in range(20):
+        #    self.addRazgovor()
             
         
 
-    def addRazgovor(self: Self):
+    def addRazgovor(self: Self, username):
         self.rowconfigure(len(self.razgovori), weight=1)
         #self.columnconfigure(1, weight=1)
 
@@ -57,7 +76,7 @@ class OdabirRazgovora(ctk.CTkScrollableFrame):
 
 
         self.razgovori.append([frame,
-                               ctk.CTkLabel(frame, text="neki tekst"),
+                               ctk.CTkLabel(frame, text=username),
                                ctk.CTkCanvas(frame, height=visina, width=sirina),
                                ])
         #u frameu
@@ -94,6 +113,8 @@ class Razgovor(ctk.CTkFrame):
         self._timestamp: list[float] = []
 
     def initPisanjePoruka(self: Self):
+        app: Aplikacija = self.master.master #type: ignore
+
         #pisanje poruka
         self.unosPoruka=ctk.CTkFrame(self)
         self.unosPoruka.grid(row=1, column=0, padx=10, pady=5, sticky="sew")
@@ -103,17 +124,8 @@ class Razgovor(ctk.CTkFrame):
         self.unos=ctk.CTkEntry(self.unosPoruka, placeholder_text="Napišite poruku")
         self.unos.grid(row=0, column=0, sticky="nsew")
 
-        self.posalji=ctk.CTkButton(self.unosPoruka, text="Pošalji", command=lambda: self.slanje(self.unos.get()))
+        self.posalji=ctk.CTkButton(self.unosPoruka, text="Pošalji", command=lambda: app.slanje(self.unos.get()))
         self.posalji.grid(row=0, column=1)
-
-    def slanje(self: Self, poruka):
-        if poruka == "": return
-        print("Poslana poruka:", poruka)
-
-    #todo
-    def dodajPoruku(self: Self, poruka: dict[str, Any]):
-        self._poruke.append(poruka["message"])
-        self._timestamp.append(poruka["timestamp"])
 
 
 class Login(ctk.CTkFrame):
@@ -121,9 +133,11 @@ class Login(ctk.CTkFrame):
         super().__init__(*args, **kwargs)#custom tkinter postavi sam sebe
         self.initUI()
 
+        #aplikacija i njezine metode, npr. Aplikacija.successfulLoginCallback() su metode na self.master
+
     def initUI(self: Self):
         # Frame
-        innerFrame = ctk.CTkFrame(self.master, fg_color=b_bijela, bg_color=b_siva, height=350, width=300, corner_radius=20)
+        innerFrame = ctk.CTkFrame(self.master, fg_color=b_bijela, height=350, width=300, corner_radius=20)
         innerFrame.grid(row=0, column=0, padx=240, pady=115)
 
         # Title Label
@@ -144,24 +158,65 @@ class Login(ctk.CTkFrame):
                                            width=200, corner_radius=15, height=45, show="*")
         self.passwordEntry.grid(row=2, column=0, sticky="nsew", padx=30, pady=20)
 
+        inner2Frame = ctk.CTkFrame(innerFrame, fg_color=b_bijela, corner_radius=20)
+        inner2Frame.rowconfigure(0, weight=1)
+        inner2Frame.columnconfigure(0, weight=1)
+        inner2Frame.columnconfigure(1, weight=1)
+        inner2Frame.grid(row=3, column=0, sticky="nsew")
+
+
+
         # Register Label
-        registerLabel = ctk.CTkLabel(innerFrame, text="Registriraj se", text_color=b_tekst, 
+        registerLabel = ctk.CTkLabel(inner2Frame, text="Registriraj se", text_color=b_tekst, 
                                      cursor="hand2", font=("", 15))
-        registerLabel.grid(row=3, column=0, sticky="nsew", pady=20, padx=40)
-        registerLabel.bind("<Button-1>", lambda: self.registracija(self.usernameEntry.get(), self.passwordEntry.get()))
+        registerLabel.grid(row=0, column=0, sticky="nsew", pady=20, padx=40)
+        registerLabel.bind("<Button-1>", lambda e: self.registracija(self.usernameEntry.get(), self.passwordEntry.get()))
 
         # Login Button
-        loginButton = ctk.CTkButton(innerFrame, text="Prijavi se", font=("", 15, "bold"), 
+        loginLabel = ctk.CTkLabel(inner2Frame, text="Prijavi se", font=("", 15, "bold"),
                                     height=40, width=60, fg_color=b_plava1, cursor="hand2", 
-                                    corner_radius=15, command=lambda: self.prijava(self.usernameEntry.get(), self.passwordEntry.get()))
-        loginButton.grid(row=3, column=0, sticky="nsew", pady=20, padx=35)
+                                    corner_radius=15)
+        loginLabel.grid(row=0, column=1, sticky="nsew", pady=20, padx=35)
+        loginLabel.bind("<Button-1>", lambda e: self.prijava(self.usernameEntry.get(), self.passwordEntry.get()))
+
+    def configureUsernamePasswordInput(self: Self, *args, **kwargs):
+        self.after(0, self.usernameEntry.configure(*args, **kwargs))
+        self.after(0, self.passwordEntry.configure(*args, **kwargs))
+
+    def passwordRestrictionsSat(self: Self, password: str) -> bool:
+        return True
+        if len(password)<8 or len(password)>40: return False
+        containsUpper, containsLower, containsSpecial, cointainsNumber = False, False, False, False
+        allLetters = "qwertzuiopšđžćčlkjhgfdsayxcvbnm"
+        allLettersU = allLetters.upper()
+        for c in password:
+            if cointainsNumber or c in "1234567890":
+                cointainsNumber = True
+            if containsUpper or c in allLettersU:
+                containsUpper = True
+            if containsLower or c in allLetters:
+                containsLower = True
+            if containsSpecial or c in "!?,;.-+*/_<>~#$%&()=@[]{}$€|\\":
+                containsSpecial = True
+            if containsLower and containsSpecial and containsUpper and cointainsNumber:
+                return True
+        return False
 
     def prijava(self: Self, username, password):
-        pass
-        
-   
+        #zadovoljava uvjete za lozinku
+        if not self.passwordRestrictionsSat(password):
+            return
+        app: Aplikacija = self.master.master#type: ignore
+        app.prijava(username, password)
+
     def registracija(self: Self, username, password):
-        pass
+        #zadovoljava uvjete za lozinku
+        if not self.passwordRestrictionsSat(password):
+            return
+        app: Aplikacija = self.master.master#type: ignore
+        app.registracija(username, password)
+
+
 
 """
 Glavna aplikacija, nasljeduje klasu glavne aplikacije iz custom tkintera
@@ -173,54 +228,192 @@ class Aplikacija(ctk.CTk):
     def __init__(self: Self, *args, **kwargs):#*args i **kwargs u slucaju da ih custom tkinter koristi sa strane (bez da znamo)
         super().__init__(*args, **kwargs)#custom tkinter postavi sam sebe
 
+        self.login = None
+        self.odabirRazgovora = None
+        self.razgovor = None
+
+        self.rowconfigure(0, weight=1)
+        self.columnconfigure(0, weight=1)
+
+        self.mainFrame = ctk.CTkFrame(self)
+
         self.title("WhatsApp")
         self.resizable(True, True)
         self.minsize(800, 600)
 
-        if not self.loggedIn():
+    def resetMainFrame(self: Self, *args, **kwargs):
+        self.mainFrame: ctk.CTkFrame
+        
+        self.login = None
+        self.odabirRazgovora = None
+        self.razgovor = None
+
+        self.mainFrame.destroy()
+        self.mainFrame = ctk.CTkFrame(master=self, *args, **kwargs)
+        self.mainFrame.grid(row=0, column=0, sticky="nsew")
+    
+    def initLoginOrChat(self: Self):
+        if not baza.checkLoggedIn():
             self.initLogin()
         
         else:
             self.initChat()
 
-    def loggedIn(self: Self):
-        return True
-    
+    def successfulLoginCallback(self: Self):
+        self.login = None
+        self.initChat()
+
+    def successfulConnectCallback(self: Self):
+        self.queue = asyncio.Queue()
+        asyncio.run_coroutine_threadsafe(self.readFromServer(self.reader), self.loop)
+        asyncio.run_coroutine_threadsafe(self.write2Server(self.writer, self.queue), self.loop)
+        self.initLoginOrChat()
+
+    async def aConnect(self: Self):
+        retryingT = ["Retrying", "Retrying.", "Retrying..", "Retrying..."]
+        i=0
+        while True:
+            try:
+                ReWr = await asyncio.wait_for(asyncio.open_connection(self.ip, self.port), timeout=0.5)
+                break
+            except (OSError, asyncio.TimeoutError):
+                self.after(0, lambda:self.text2.configure(True, text=retryingT[i]))
+                i = (i+1)%len(retryingT)
+
+        self.reader, self.writer = ReWr
+        self.after(0, self.successfulConnectCallback)
+
+    async def readFromServer(self: Self, reader: asyncio.StreamReader):
+        while True:
+            parser = RequestParser()
+            data = await reader.readline()
+            if not data:
+                break
+            parser.append(data)
+            #print(f"Received from server: {data.decode()}")
+            serverRequest = parser.parse()
+            print(serverRequest)
+            if serverRequest["command"] == "signIn" or serverRequest["command"] == "register":
+                if serverRequest["success"]:
+                    print("uspjesna prijava")
+                    self.username = serverRequest["username"]
+                    self.after(0, self.successfulLoginCallback)
+                else:
+                    self.mainFrame.configureUsernamePasswordInput(border_color="red")
+
+            elif serverRequest["command"] == "user":
+                if not baza.checkUserExists(serverRequest["user"]):
+                    baza.cur.execute(
+                        """
+                        INSERT INTO Korisnici(korisnickoIme)
+                        VALUES (?)
+                        """, (serverRequest["user"],)
+                    )
+                    baza.conn.commit()
+
+                    self.odabirRazgovora.addRazgovor(serverRequest["user"])
+
+        
+        self.after(0, lambda: self.initConnection(self.ip, self.port))
+
+    async def write2Server(self: Self, writer: asyncio.StreamWriter, queue: asyncio.Queue):
+        while True:
+            data = await queue.get() # messages
+            if data == None:
+                print("Server writer stopped")
+                break
+            writer.write(data + b'\n')
+            await writer.drain()
+
+    def networkingLoop(self: Self, loop):
+        asyncio.set_event_loop(loop)
+        loop.run_forever()
+
+    def initConnection(self: Self, ip, port):
+        self.resetMainFrame()
+
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.setblocking(False)
+
+        self.ip = ip
+        self.port = port
+
+        self.loop = asyncio.new_event_loop()
+
+        self.networkingThread = Thread(target=self.networkingLoop, args=(self.loop,), name="networking", daemon=True)
+        self.networkingThread.start()
+
+        self.connectFuture = asyncio.run_coroutine_threadsafe(self.aConnect(), self.loop)
+        #self.connectFuture.add_done_callback(lambda future: self.after(0, lambda: self.initLoginOrChat))#future nije koristen jer aConnect ne vraca vrijednost
+        
+        self.mainFrame.columnconfigure(0, weight=1)
+        self.mainFrame.columnconfigure(1, weight=1)
+        self.mainFrame.columnconfigure(2, weight=1)
+        self.mainFrame.rowconfigure(0, weight=1)
+        self.mainFrame.rowconfigure(1, weight=1)
+        self.mainFrame.rowconfigure(2, weight=1)
+
+        
+        #pocistiti memoriju
+        gc.collect()
+
+        frame = ctk.CTkFrame(self.mainFrame, fg_color=b_siva, height=350, width=300, corner_radius=20)
+
+        frame.rowconfigure(0, weight=1)
+        frame.rowconfigure(1, weight=1)
+        frame.columnconfigure(0, weight=1)
+        
+
+        frame.grid(row=1, column=1, sticky="nsew")
+
+        self.text1 = ctk.CTkLabel(frame, text="Connection FAILED", font=("Arial", 30))
+        self.text1.grid(row=0, column=0)
+
+        self.text2 = ctk.CTkLabel(frame, text="", font=("Arial", 30))
+        self.text2.grid(row=1, column=0)
+
     def initLogin(self: Self):
-        self.frame = Login(self)
+        self.resetMainFrame()
+
+        #self.mainFrame = ctk.CTkFrame(self)
+        #self.mainFrame.grid(row=0, column=0)
+
+        self.mainFrame = Login(self.mainFrame)
+        self.mainFrame.grid(row=0, column=0)
         self.config(bg=b_siva)
 
+        self.login = self.mainFrame
+
     def initChat(self: Self):
-        selfID = baza.cur.execute("SELECT korisnikID FROM Korisnici WHERE korisnickoIme=?", ()).fetchone()
+        self.resetMainFrame()
+        #selfID = baza.cur.execute("SELECT korisnikID FROM Korisnici WHERE korisnickoIme=?", ()).fetchone()
 
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
 
         #glavni frame koji sadrzava 2 podframea
-        self.frame=ctk.CTkFrame(master=self, corner_radius=0)
-        self.frame.grid(row=0, column=0, sticky="nsew")
+        self.mainFrame=ctk.CTkFrame(master=self, corner_radius=0)
+        self.mainFrame.grid(row=0, column=0, sticky="nsew")
 
         #odvojeni prikaz popisa razgovora i aktivnog razgovora
-        self.frame.columnconfigure(0, weight=1, uniform="column")
-        self.frame.columnconfigure(1, weight=3, uniform="column")
+        self.mainFrame.columnconfigure(0, weight=1, uniform="column")
+        self.mainFrame.columnconfigure(1, weight=3, uniform="column")
         
-        #self.frame.rowconfigure(0, weight=1) #doesnt expand vertically
-        self.frame.rowconfigure(1, weight=1)
+        #self.mainFrame.rowconfigure(0, weight=1) #doesnt expand vertically
+        self.mainFrame.rowconfigure(1, weight=1)
         
         #lijeva strana, razgovori
-        self.chatsLabel=ctk.CTkLabel(self.frame, text="Razgovori", font=("Arial", 20)) 
+        self.chatsLabel=ctk.CTkLabel(self.mainFrame, text="Razgovori", font=("Arial", 20)) 
         self.chatsLabel.grid(row=0, column=0, pady=10, sticky="new")
-        self.odabirRazgovora = OdabirRazgovora(self.frame, fg_color=b_plava1)
+        self.odabirRazgovora = OdabirRazgovora(self.mainFrame, fg_color=b_plava1)
         self.odabirRazgovora.grid(row=1, column=0, sticky="nsew")
 
         #desna strana, ime razgovora, poruke i slanje
-        self.imeRazgovora=ctk.CTkLabel(self.frame, text="", font=("Arial", 20))
+        self.imeRazgovora=ctk.CTkLabel(self.mainFrame, text="", font=("Arial", 20))
         self.imeRazgovora.grid(row=0, column=1, sticky="nsew")
-        self.razgovor = Razgovor(self.frame)
+        self.razgovor = Razgovor(self.mainFrame)
         self.razgovor.grid(row=1, column=1, sticky="nsew")
 
-    def provjeriZaNovePoruke(self: Self):
-        pass
 
     def button_callback(self: Self):
         print("button pressed")
@@ -228,11 +421,26 @@ class Aplikacija(ctk.CTk):
     def otvorirazgovor(self: Self):
         pass
 
-    def slanje(self: Self, *args):
-        pass
+    def slanje(self: Self, poruka):
+        if poruka == "": return
+        poruka = str({"command": "message", "sender": "a", "receiver": "b", "message": poruka})
+        asyncio.run_coroutine_threadsafe(self.queue.put(poruka.encode()), self.loop)
 
-def prijava1(n: int):
-    print("posrani sam")
+    def registracija(self: Self, username, password):
+        poruka = str({"command": "register", "username": username, "passwordPlaintext": password})
+        asyncio.run_coroutine_threadsafe(self.queue.put(poruka.encode()), self.loop)
+
+    def prijava(self: Self, username, password):
+        poruka = str({"command": "signIn", "username": username, "passwordPlaintext": password})
+        asyncio.run_coroutine_threadsafe(self.queue.put(poruka.encode()), self.loop)
+
+    def on_close(self: Self):
+        self.destroy()
+
+    def run(self: Self):
+        """Starts the event loop manually."""
+        self.protocol("WM_DELETE_WINDOW", self.on_close)  # Close button handling
+        self.mainloop()
 
 class DSA:
     def __init__(self: Self):
@@ -335,5 +543,8 @@ class DSA:
 # file_path = input("Put: ")
 # print(dsa.verify(file_path, signature[0], signature[1])) #True ako je valjan False ako nije
 if __name__ == "__main__":
+    #ili input
     whatsApp=Aplikacija()
+    whatsApp.initConnection("127.0.0.1", 9999)
     whatsApp.mainloop()
+    whatsApp.networkingThread.join()
